@@ -22,22 +22,8 @@ void MyMulIO::add(const MyHttp &http, int16_t ev_filter)
     int fd = http.sock();
     struct kevent change;
 
-    // 初始化kevent结构体
-    // change 要初始化的kevent结构体
-    // fd 文件描述符 监听哪个fd
-    // 关注的事件 EVFILT_VNODE EVFILT_WRITE
-    // EV_ADD 添加到kqueue中
-    // EV_CLEAR 每次事件被取走 状态重置
-    // NOTE_WRITE 每当fd指向的文件描述符有写入时返回 目的就是为了监听文件变化的
-    // 附加数据 后面取就绪的时候作为判定依据
-    EV_SET(&change, fd, ev_filter, EV_ADD | EV_ENABLE, 0, 0, &ev_filter);
-
-    // changelist 指向kevent结构的指针 要监听的事件
-    // eventlist 指向kevent结构的指针 如果有有事件发生会放在eventlist中
-    // 返回的是eventlist里面事件的数量 即有多少个事件放到了eventlist中
-    // 设定 如果nevents是0 函数会立即返回 如果nevents不是0 且timeout指针为空 函数会永久阻塞 直到事件发生
-    // 作用就是向kqueue中注册要监听的事件
-    // system call
+    EV_SET(&change, fd, ev_filter, EV_ADD, 0, 0, nullptr);
+    // system call 不阻塞
     int ret = kevent(_kqfd, &change, 1, nullptr, 0, nullptr);
     if (-1 == ret)
     {
@@ -49,13 +35,13 @@ void MyMulIO::add(const MyHttp &http, int16_t ev_filter)
     }
 }
 
-void MyMulIO::modify(const MyHttp &http, uint32_t events)
+void MyMulIO::modify(const MyHttp &http, uint32_t ev_filter)
 {
     int fd = http.sock();
-    struct kevent ev;
-    EV_SET(&ev, fd, EVFILT_WRITE, EV_ADD | EV_CLEAR, events, 0, nullptr);
+    struct kevent change;
+    EV_SET(&change, fd, ev_filter, EV_ADD, 0, 0, nullptr);
     // system call
-    int ret = kevent(_kqfd, &ev, 1, nullptr, 0, nullptr);
+    int ret = kevent(_kqfd, &change, 1, nullptr, 0, nullptr);
     if (-1 == ret)
     {
         std::cout << "kq modify error" << std::endl;
@@ -66,13 +52,13 @@ void MyMulIO::modify(const MyHttp &http, uint32_t events)
 void MyMulIO::remove(const MyHttp &http)
 {
     int fd = http.sock();
-    struct kevent ev;
-    EV_SET(&ev, fd, EVFILT_WRITE, EV_DELETE, 0, 0, nullptr);
+    struct kevent change;
+    EV_SET(&change, fd, EVFILT_READ, EV_DELETE, 0, 0, nullptr);
     // system call
-    int ret = kevent(_kqfd, &ev, 1, nullptr, 0, nullptr);
+    int ret = kevent(_kqfd, &change, 1, nullptr, 0, nullptr);
     if (-1 == ret)
     {
-        std::cout << "kq del error" << std::endl;
+        std::cout << "kq remove error" << std::endl;
         exit(1);
     } else
     {
@@ -95,30 +81,31 @@ int MyMulIO::dispatch(int num, int timeout, std::vector<std::string> &storage)
     if (-1 == n)
     {
         std::cerr << "kevent() system call err, errno=" << errno << std::endl;
-        return -1;
+        return 0;
     }
+    int read_ready_cnt = 0;
     for (int i = 0; i < n; i++)
     {
         struct kevent event = events[i];
-        int ev_fd = event.ident; // 绑定的fd
-        int ev_flags = event.flags; // 发生的事件
-        int att = *((int16_t *)event.udata); // 附加数据 标识就绪的是读还是写
+        int ev_fd = (int) (event.ident); // 绑定的fd
+        int ev_filter = (int) (event.filter); // 被关注的事件
 
-        if (ev_flags & EV_ERROR)
+        if (ev_filter == EV_ERROR)
         {
             std::cout << "kq event error" << std::endl;
             continue;
         }
         if (_fd_http_map.find(ev_fd) == _fd_http_map.end()) return n;
-        if (att == EVFILT_READ)
+        if (ev_filter == EVFILT_READ)
         {
             // fd就绪 可读 读完改关注写事件
             std::string out = _fd_http_map[ev_fd]._response;
             _fd_http_map[ev_fd].recv_http_request(&out);
             _fd_http_map[ev_fd]._r->remove(_fd_http_map[ev_fd]);
             storage.push_back(std::move(out));
+            read_ready_cnt++;
         }
-        if (att == EVFILT_WRITE)
+        if (ev_filter == EVFILT_WRITE)
         {
             // fd就绪 可写 写完改关注读事件
             _fd_http_map[ev_fd].build_htt_request("/");
@@ -126,5 +113,5 @@ int MyMulIO::dispatch(int num, int timeout, std::vector<std::string> &storage)
             _fd_http_map[ev_fd]._r->modify(_fd_http_map[ev_fd], EVFILT_READ);
         }
     }
-    return n;
+    return read_ready_cnt;
 }

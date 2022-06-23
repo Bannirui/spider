@@ -29,12 +29,9 @@ void MyController::start()
         } else
         {
             int n = _mul_io.dispatch(10, 100, _page_storage);
-            if (-1 == n)
-                continue;
-            else if (n == 0)
+            if (n == 0)
             {
                 std::cout << "all events are done" << std::endl;
-                break;
             } else
             {
                 MyMemorizer::save(_page_storage);

@@ -17,7 +17,7 @@ public:
     // 向kq添加要关注的事件
     void add(const MyHttp &http, int16_t ev_filter);
 
-    void modify(const MyHttp &http, uint32_t events);
+    void modify(const MyHttp &http, uint32_t ev_filter);
 
     void remove(const MyHttp &http);
 

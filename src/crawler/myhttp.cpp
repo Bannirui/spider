@@ -48,14 +48,14 @@ int MyHttp::send_http_request()
     _peer.sin_addr.s_addr = inet_addr(_ip.c_str());
 
     // system call
-    int fd = send(_sock, _request.c_str(), _request.size(), 0);
+    ssize_t fd = send(_sock, _request.c_str(), _request.size(), 0);
     if (-1 == fd)
     {
         // TODO: 2022/6/22
         std::cerr << "send request error" << std::endl;
         return -1;
     }
-    return fd;
+    return (int) fd;
 }
 
 void MyHttp::recv_http_request(std::string *out)
